@@ -131,6 +131,28 @@ def webhook_lead(request):
     # Leads de formulários padrão
     return _handle_webhook(request.data, event_type_override='lead', lead_source_override='lead')
 
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def webhook_cartpanda(request):
+    """
+    Webhook dedicado para receber pedidos da CartPanda.
+    Detecta automaticamente o tipo de evento pela financial_status ou topic.
+    """
+    data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
+    data['platform'] = 'cartpanda'
+
+    financial_status = str(data.get('financial_status', '')).lower()
+    topic = str(data.get('topic', '')).lower()
+
+    if financial_status == 'paid' or 'paid' in topic:
+        return _handle_webhook(data, event_type_override='purchase_approved', lead_source_override='customer')
+    elif financial_status == 'refunded' or 'refund' in topic:
+        return _handle_webhook(data, event_type_override='refund', lead_source_override='customer')
+    elif financial_status == 'pending' or 'created' in topic:
+        return _handle_webhook(data, lead_source_override='lead')
+    else:
+        return _handle_webhook(data, lead_source_override='lead')
+
 # --- HEALTH CHECK ---
 
 @api_view(['GET'])

@@ -228,7 +228,14 @@ class DataNormalizer:
         
         if 'order_amount' in data and data.get('status') in ['approved', 'paid', 'aprovado', 'pago']:
             return 'purchase_approved'
-        
+
+        # Detecta por financial_status (CartPanda/Shopify-like)
+        financial_status = str(data.get('financial_status', '')).lower()
+        if financial_status == 'paid':
+            return 'purchase_approved'
+        if financial_status in ('refunded', 'voided'):
+            return 'refund'
+
         return None
 
 
@@ -272,10 +279,15 @@ class PlatformDetector:
         # Tray - estrutura característica
         if 'tray' in str(data).lower() or 'loja' in str(data).lower():
             return 'tray'
-        
-        # Detecta por URL ou headers (se disponível)
-        # Isso seria útil se os dados viessem com metadados HTTP
-        
+
+        # CartPanda - estrutura Shopify-like
+        if 'cartpanda' in str(data).lower():
+            return 'cartpanda'
+        if 'financial_status' in data and 'line_items' in data:
+            return 'cartpanda'
+        if 'line_items' in data and 'billing_address' in data:
+            return 'cartpanda'
+
         return 'unknown'
 
 
@@ -375,6 +387,95 @@ class KiwifyTransformer:
             return UniversalTransformer._generic_transform(data, 'kiwify')
 
 
+class CartPandaTransformer:
+    """Transforma dados do formato CartPanda (Shopify-like) para formato padrão"""
+
+    @staticmethod
+    def transform(data: Dict) -> Dict:
+        try:
+            customer = data.get('customer', {}) or {}
+            billing = data.get('billing_address', {}) or {}
+            shipping = data.get('shipping_address', {}) or {}
+            line_items = data.get('line_items', []) or []
+
+            # Nome: customer > billing > shipping
+            first_name = customer.get('first_name') or billing.get('first_name') or shipping.get('first_name')
+            last_name = customer.get('last_name') or billing.get('last_name') or shipping.get('last_name')
+
+            if not first_name:
+                full_name = customer.get('name') or billing.get('name')
+                first_name, last_name = DataNormalizer.split_name(full_name)
+
+            # Email e telefone
+            email = customer.get('email') or data.get('email') or billing.get('email')
+            phone = (customer.get('phone') or billing.get('phone') or
+                     shipping.get('phone') or data.get('phone'))
+
+            # Endereço (billing > shipping)
+            zip_code = billing.get('zip') or shipping.get('zip')
+            city = billing.get('city') or shipping.get('city')
+            state = billing.get('province_code') or billing.get('province') or shipping.get('province_code')
+
+            # Valor e financeiro
+            amount = data.get('total_price') or data.get('subtotal_price') or 0
+
+            # Produtos: extrai de line_items
+            products = []
+            for item in line_items:
+                if isinstance(item, dict):
+                    products.append({
+                        'name': item.get('title') or item.get('name', ''),
+                        'quantity': item.get('quantity', 1),
+                        'price': item.get('price', 0),
+                    })
+
+            product_name = products[0]['name'] if products else ''
+
+            # IDs
+            order_id = str(data.get('id') or data.get('order_number') or '')
+            cartpanda_id = str(data.get('id') or '')
+
+            # Status do evento
+            financial_status = str(data.get('financial_status', '')).lower()
+            if financial_status == 'paid':
+                event_type = 'purchase_approved'
+                order_status = 'paid'
+            elif financial_status == 'refunded':
+                event_type = 'refund'
+                order_status = 'refunded'
+            elif financial_status == 'pending':
+                event_type = 'lead'
+                order_status = 'pending'
+            else:
+                event_type = DataNormalizer.detect_event_type(data) or 'unknown'
+                order_status = financial_status or 'pending'
+
+            return {
+                'unique_key': f"CARTPANDA-{order_id}",
+                'order_id': order_id,
+                'cartpanda_id': cartpanda_id,
+                'event_type': event_type,
+                'platform': 'cartpanda',
+                'status': order_status,
+                'client_email': DataNormalizer.normalize_email(email),
+                'client_first_name': first_name,
+                'client_last_name': last_name,
+                'client_phone': DataNormalizer.normalize_phone(phone),
+                'product_name': product_name,
+                'order_amount': DataNormalizer.normalize_amount(amount),
+                'products': products,
+                'payment_method': data.get('gateway') or data.get('payment_gateway') or '',
+                'currency': data.get('currency', 'BRL'),
+                'zip_code': zip_code,
+                'city': city,
+                'state': state,
+                'raw_payload': str(data),
+            }
+        except Exception as e:
+            logger.error(f"Erro ao transformar dados CartPanda: {str(e)}")
+            return UniversalTransformer._generic_transform(data, 'cartpanda')
+
+
 class UniversalTransformer:
     """
     Transforma dados de QUALQUER formato para formato padrão.
@@ -420,7 +521,14 @@ class UniversalTransformer:
             except Exception as e:
                 logger.warning(f"Erro no transformador Kiwify, usando genérico: {str(e)}")
                 return UniversalTransformer._generic_transform(data, platform)
-        
+
+        elif platform == 'cartpanda':
+            try:
+                return CartPandaTransformer.transform(data)
+            except Exception as e:
+                logger.warning(f"Erro no transformador CartPanda, usando genérico: {str(e)}")
+                return UniversalTransformer._generic_transform(data, platform)
+
         # Usa transformação genérica
         return UniversalTransformer._generic_transform(data, platform)
     

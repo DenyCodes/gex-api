@@ -13,6 +13,7 @@ from orders.views import (
     webhook_cart_abandonment,
     webhook_purchase_approved,
     webhook_lead,
+    webhook_cartpanda,
     health_check,
 )
 
@@ -42,6 +43,9 @@ urlpatterns = [
     
     # Webhook Lead
     path('api/v1/webhook/lead/', webhook_lead, name='webhook-lead'),
+
+    # Webhook CartPanda (pedidos e ordens)
+    path('api/v1/webhook/cartpanda/', webhook_cartpanda, name='webhook-cartpanda'),
     
     # --- OUTROS ---
 

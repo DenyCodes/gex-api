@@ -6,12 +6,11 @@ from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from django_filters.rest_framework import DjangoFilterBackend
 from django.views.decorators.csrf import csrf_exempt
-from django.http import JsonResponse
 
 # Imports dos seus models e serializers
 from .models import Order, CapiEvent, Lead
 from .serializers import OrderSerializer, CapiEventSerializer, LeadSerializer
-from .services import process_event 
+from .services import process_event  # ESSENCIAL: É isso que salva no banco e envia pro Meta
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +41,7 @@ class LeadViewSet(viewsets.ModelViewSet):
     serializer_class = LeadSerializer
     pagination_class = StandardResultsSetPagination
     filter_backends = [DjangoFilterBackend]
-    # AJUSTE: Adicionado 'lead_source' para você filtrar abandonos no painel
+    # Filtro essencial para separar Abandonos de Leads normais no painel
     filterset_fields = ['email', 'lead_source'] 
 
 # --- WEBHOOKS (Lógica de Recebimento) ---
@@ -52,6 +51,9 @@ def _handle_webhook(data, event_type_override=None, lead_source_override=None):
     Função central que recebe o dado, classifica, salva e envia pro Meta.
     """
     try:
+        # --- DEBUG: Ver o que está chegando ---
+        # print(f"📦 PAYLOAD BRUTO: {data}") 
+
         # 1. Garante o tipo de evento
         if event_type_override:
             data['event_type'] = event_type_override
@@ -60,21 +62,23 @@ def _handle_webhook(data, event_type_override=None, lead_source_override=None):
         if lead_source_override:
             data['lead_source'] = lead_source_override
             
-        print(f"--- PROCESSANDO EVENTO: {data.get('event_type')} | FONTE: {data.get('lead_source')} ---")
+        print(f"--- PROCESSANDO: {data.get('event_type')} | FONTE: {data.get('lead_source')} ---")
         
-        # 3. Chama o services.py
+        # 3. Chama o services.py (A MÁGICA ACONTECE AQUI)
         result = process_event(data)
         
-        # 4. Verifica o resultado
+        # 4. Verifica o resultado do service
         if result.get('status') == 'error':
-            print(f"ERRO NO PROCESSAMENTO: {result}")
+            # --- DEBUG DE ERRO (IMPORTANTE PARA O PURCHASE 400) ---
+            print(f"❌ ERRO 400 (Services): {result}")
             return Response(result, status=status.HTTP_400_BAD_REQUEST)
             
-        print("SUCESSO: Salvo no Supabase e Processado.")
+        print(f"✅ SUCESSO: Lead ID {result.get('lead_id')} processado.")
         return Response(result, status=status.HTTP_201_CREATED)
         
     except Exception as e:
         logger.error(f"Erro crítico no webhook: {e}")
+        # Retorna erro detalhado (ajuda no debug do Postman/Logs)
         return Response(
             {"status": "error", "detail": str(e)}, 
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -83,13 +87,13 @@ def _handle_webhook(data, event_type_override=None, lead_source_override=None):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def webhook_gex(request):
-    # Webhook genérico, assume lead se não vier nada
+    # Webhook genérico
     return _handle_webhook(request.data, lead_source_override='lead')
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def webhook_cart_abandonment(request):
-    # Abandono de carrinho (Legado ou integração direta)
+    # Abandono de carrinho (Legado)
     return _handle_webhook(request.data, event_type_override='cart_abandonment', lead_source_override='abandonment')
 
 @csrf_exempt 
@@ -99,7 +103,6 @@ def webhook_abandono(request):
     """
     Webhook específico para o SCRIPT JS de Abandono.
     """
-    # Usamos a função auxiliar para manter padronização, mas forçamos as tags
     return _handle_webhook(request.data, event_type_override='cart_abandonment', lead_source_override='abandonment')
 
 @api_view(['POST', 'GET'])
@@ -107,10 +110,15 @@ def webhook_abandono(request):
 def webhook_purchase_approved(request):
     """
     Webhook para Compras (S2S/Postback).
+    Aceita tanto JSON (Body) quanto Query Params (URL).
     """
     data = {}
-    if request.data:
+    
+    # 1. Pega dados do JSON (se houver)
+    if request.data and isinstance(request.data, dict):
         data.update(request.data)
+        
+    # 2. Pega dados da URL (se houver, sobrescreve ou complementa)
     if request.query_params:
         data.update(request.query_params.dict())
 

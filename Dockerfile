@@ -1,13 +1,13 @@
 # Imagem oficial do Python
 FROM python:3.12-slim
 
-# Impede que o Python gere arquivos .pyc e permite logs em tempo real
+# Evita arquivos .pyc e permite logs em tempo real
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
 
 WORKDIR /app
 
-# Instala dependências do sistema necessárias para MySQL e PostgreSQL
+# Instala dependências do sistema (Necessário para o psycopg2 e mysqlclient)
 RUN apt-get update && apt-get install -y \
     default-libmysqlclient-dev \
     pkg-config \
@@ -19,11 +19,12 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt /app/
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copia o projeto para dentro do container
+# Copia o projeto
 COPY . /app/
 
-# O Railway injeta a porta automaticamente, mas deixamos a 8000 como padrão
-EXPOSE 8000
+# Coleta os arquivos estáticos (CSS do admin)
+RUN python manage.py collectstatic --noinput
 
-# Comando para produção usando Gunicorn (já presente no seu requirements.txt)
-CMD ["gunicorn", "core.wsgi:application", "--bind", "0.0.0.0:8000"]
+# COMANDO INTELIGENTE:
+# Usa 'sh -c' para permitir que a variável $PORT do Railway seja lida corretamente.
+CMD sh -c "python manage.py migrate && gunicorn core.wsgi:application --bind 0.0.0.0:${PORT:-8000}"

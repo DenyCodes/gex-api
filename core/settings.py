@@ -9,7 +9,7 @@ FACEBOOK_ACCESS_TOKEN = "EAAK2xtj5h7YBQg2eYKFz9s14z2uXq5ap6pupIYpbw4f4ojBF2ST1Qk
 SECRET_KEY = 'django-insecure-3pn@rsa&a1#)u!v@#dd6)3ddm8vtx@wm=lh!8q@yv4nv(!4l1^'
 DEBUG = True
 ALLOWED_HOSTS = ['*', 'localhost', '127.0.0.1', '.ngrok-free.dev']
-CSRF_TRUSTED_ORIGINS = ['https://intranuclear-unjournalistic-amirah.ngrok-free.dev']
+CSRF_TRUSTED_ORIGINS = ['https://gex-corp.up.railway.app']
 
 INSTALLED_APPS = [
     'django.contrib.admin',

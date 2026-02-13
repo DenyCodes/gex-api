@@ -1,5 +1,4 @@
 # GEX Corporation API
-# DESENVOLVIDO POR DENIS OLIVEIRA
 API REST oficial da GEX Corporation desenvolvida com Django REST Framework para integração com n8n e outras plataformas. Gerencia eventos de negócio, abandono de carrinho, compras aprovadas, leads e fluxos de dados da empresa.
 
 ## 📋 Índice

@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:dev.cartpanda.com)",
+      "WebSearch",
+      "Bash(python:*)",
+      "WebFetch(domain:developers.facebook.com)",
+      "WebFetch(domain:docs.getelevar.com)",
+      "WebFetch(domain:doc.commandersact.com)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nAtualizar docs API com extend_schema e tags no ReDoc/Swagger\n\n- Adicionar @extend_schema em todos os webhooks com summary,\n  description, request/response schemas e examples\n- Criar serializers inline para documentação: WebhookRequest,\n  WebhookResponse, CartPandaRequest, HealthResponse\n- Adicionar tags organizacionais: Webhooks, Orders, Leads, Events, Health\n- Atualizar SPECTACULAR_SETTINGS: description completa, version 2.0.0\n- Adicionar docstrings nos ViewSets \\(Orders, Leads, CapiEvents\\)\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git push:*)",
+      "Bash(curl:*)"
+    ]
+  }
+}

@@ -280,11 +280,32 @@ def webhook_lead(request):
         ),
     ],
 )
-@api_view(['POST'])
+@api_view(['POST', 'GET'])
 @permission_classes([AllowAny])
 def webhook_cartpanda(request):
-    data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
+    # Suporte a S2S Postback (GET com query params) + POST com JSON body
+    data = {}
+    if request.data and isinstance(request.data, dict):
+        data.update(request.data)
+    if request.query_params:
+        data.update(request.query_params.dict())
     data['platform'] = 'cartpanda'
+
+    # --- Mapeamento S2S Postback: nomes dos parâmetros CartPanda → nomes internos ---
+    s2s_mapping = {
+        'phone_number': 'phone',       # CartPanda S2S usa {phone_number}
+        'product_id': 'order_id',       # CartPanda S2S usa {product_id}
+        'amount_affiliate': 'affiliate_amount',
+        'shop_slug': 'store',
+        'datetime_unix': 'event_time',
+    }
+    for s2s_key, internal_key in s2s_mapping.items():
+        if s2s_key in data and internal_key not in data:
+            data[internal_key] = data[s2s_key]
+
+    # S2S Postback via GET geralmente é compra aprovada — garante financial_status
+    if request.method == 'GET' and not data.get('financial_status'):
+        data['financial_status'] = 'paid'
 
     # --- Flatten dos dados aninhados do CartPanda ---
     customer = data.get('customer', {}) or {}

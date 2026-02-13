@@ -20,7 +20,7 @@ class Lead(models.Model):
     # Cookies Facebook
     fbp = models.CharField(max_length=255, null=True, blank=True)
     fbc = models.CharField(max_length=255, null=True, blank=True)
-    
+    lead_source = models.CharField(max_length=50, default='lead', null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

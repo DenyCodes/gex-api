@@ -6,13 +6,12 @@ from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from django_filters.rest_framework import DjangoFilterBackend
 from django.views.decorators.csrf import csrf_exempt
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
 from django.http import JsonResponse
+
 # Imports dos seus models e serializers
 from .models import Order, CapiEvent, Lead
 from .serializers import OrderSerializer, CapiEventSerializer, LeadSerializer
-from .services import process_event  # ESSENCIAL: É isso que salva no banco e envia pro Meta
+from .services import process_event 
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +21,7 @@ class StandardResultsSetPagination(PageNumberPagination):
     page_size_query_param = 'page_size'
     max_page_size = 1000
 
-# --- VIEWSETS (Para o Painel) ---
+# --- VIEWSETS (Para o Painel Admin) ---
 
 class CapiEventViewSet(viewsets.ModelViewSet):
     queryset = CapiEvent.objects.all().order_by('-created_at')
@@ -43,25 +42,30 @@ class LeadViewSet(viewsets.ModelViewSet):
     serializer_class = LeadSerializer
     pagination_class = StandardResultsSetPagination
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['email']
+    # AJUSTE: Adicionado 'lead_source' para você filtrar abandonos no painel
+    filterset_fields = ['email', 'lead_source'] 
 
 # --- WEBHOOKS (Lógica de Recebimento) ---
 
-def _handle_webhook(data, event_type_override=None):
+def _handle_webhook(data, event_type_override=None, lead_source_override=None):
     """
-    Função central que recebe o dado, salva no Supabase e envia pro Meta via services.py
+    Função central que recebe o dado, classifica, salva e envia pro Meta.
     """
     try:
         # 1. Garante o tipo de evento
         if event_type_override:
             data['event_type'] = event_type_override
-            
-        print(f"--- PROCESSANDO EVENTO: {data.get('event_type')} ---")
         
-        # 2. Chama o services.py (AQUI ACONTECE A MÁGICA: SALVAR DB + ENVIAR META)
+        # 2. Garante a classificação da fonte (Lead vs Abandono vs Cliente)
+        if lead_source_override:
+            data['lead_source'] = lead_source_override
+            
+        print(f"--- PROCESSANDO EVENTO: {data.get('event_type')} | FONTE: {data.get('lead_source')} ---")
+        
+        # 3. Chama o services.py
         result = process_event(data)
         
-        # 3. Verifica o resultado do service
+        # 4. Verifica o resultado
         if result.get('status') == 'error':
             print(f"ERRO NO PROCESSAMENTO: {result}")
             return Response(result, status=status.HTTP_400_BAD_REQUEST)
@@ -71,7 +75,6 @@ def _handle_webhook(data, event_type_override=None):
         
     except Exception as e:
         logger.error(f"Erro crítico no webhook: {e}")
-        # Retorna erro detalhado para você ver no terminal
         return Response(
             {"status": "error", "detail": str(e)}, 
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -80,62 +83,45 @@ def _handle_webhook(data, event_type_override=None):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def webhook_gex(request):
-    return _handle_webhook(request.data)
+    # Webhook genérico, assume lead se não vier nada
+    return _handle_webhook(request.data, lead_source_override='lead')
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def webhook_cart_abandonment(request):
-    # Abandono de carrinho
-    return _handle_webhook(request.data, event_type_override='cart_abandonment')
+    # Abandono de carrinho (Legado ou integração direta)
+    return _handle_webhook(request.data, event_type_override='cart_abandonment', lead_source_override='abandonment')
 
-
-@csrf_exempt  # <--- ESSENCIAL para receber dados externos
+@csrf_exempt 
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def webhook_abandono(request):
-    try:
-        # Pega os dados brutos do JSON enviado pelo script JS
-        data = request.data
-        
-        # Opcional: Log para ver chegando
-        print(f"--> Webhook recebido: {data.get('email')} - {data.get('phone')}")
+    """
+    Webhook específico para o SCRIPT JS de Abandono.
+    """
+    # Usamos a função auxiliar para manter padronização, mas forçamos as tags
+    return _handle_webhook(request.data, event_type_override='cart_abandonment', lead_source_override='abandonment')
 
-        # Chama sua função process_event (que já sabe limpar e salvar)
-        # Como o script JS manda chaves como 'phone', 'email', 'sku',
-        # seu service.py precisa estar preparado para ler essas chaves.
-        resultado = process_event(data)
-
-        return JsonResponse(resultado, status=200)
-
-    except Exception as e:
-        print(f"Erro no webhook: {e}")
-        return JsonResponse({"status": "error", "message": str(e)}, status=500)
-@api_view(['POST', 'GET']) # Agora aceita GET também!
+@api_view(['POST', 'GET'])
 @permission_classes([AllowAny])
 def webhook_purchase_approved(request):
     """
-    Webhook para Compras.
-    Aceita JSON (Webhook padrão) e Query Params (S2S/Postback).
+    Webhook para Compras (S2S/Postback).
     """
-    # 1. Unifica os dados (Pega do corpo JSON OU da URL)
     data = {}
-    
-    # Se vier JSON no corpo (Webhook tradicional)
     if request.data:
         data.update(request.data)
-        
-    # Se vier na URL (Postback S2S / GET)
     if request.query_params:
         data.update(request.query_params.dict())
 
-    # Define o tipo de evento
-    # Se vier via S2S, assumimos que é compra aprovada
-    return _handle_webhook(data, event_type_override='purchase_approved')
+    # Compras classificamos como 'customer'
+    return _handle_webhook(data, event_type_override='purchase_approved', lead_source_override='customer')
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def webhook_lead(request):
-    return _handle_webhook(request.data, event_type_override='lead')
+    # Leads de formulários padrão
+    return _handle_webhook(request.data, event_type_override='lead', lead_source_override='lead')
 
 # --- HEALTH CHECK ---
 

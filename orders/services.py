@@ -163,9 +163,16 @@ def process_event(data):
         raw_first_name = (data.get('shipping_first_name') or data.get('billing_first_name') or data.get('first_name') or data.get('customer', {}).get('first_name'))
         raw_last_name = (data.get('shipping_last_name') or data.get('billing_last_name') or data.get('last_name') or data.get('customer', {}).get('last_name'))
         
-        raw_zip = data.get('shipping_zip') or data.get('billing_zip') or data.get('zip_code')
-        raw_city = data.get('city') or data.get('billing_city') or data.get('shipping_city')
-        raw_state = data.get('state') or data.get('billing_state') or data.get('shipping_state')
+        # Endereço — suporte a estrutura aninhada (CartPanda/Shopify-like)
+        billing_addr = data.get('billing_address', {}) or {}
+        shipping_addr = data.get('shipping_address', {}) or {}
+        raw_zip = (data.get('shipping_zip') or data.get('billing_zip') or data.get('zip_code')
+                   or billing_addr.get('zip') or shipping_addr.get('zip'))
+        raw_city = (data.get('city') or data.get('billing_city') or data.get('shipping_city')
+                    or billing_addr.get('city') or shipping_addr.get('city'))
+        raw_state = (data.get('state') or data.get('billing_state') or data.get('shipping_state')
+                     or billing_addr.get('province_code') or billing_addr.get('province')
+                     or shipping_addr.get('province_code'))
 
         # 2. LIMPEZA (NORMALIZAÇÃO)
         email = DataNormalizer.normalize_email(raw_email)
@@ -261,12 +268,30 @@ def process_event(data):
 
         # 7. PREPARAR DADOS DE PRODUTO PARA CAPI
         products = data.get('products', [])
+
+        # Fallback: converte line_items (CartPanda/Shopify) → products
+        if (not products or not isinstance(products, list)):
+            line_items = data.get('line_items', [])
+            if line_items and isinstance(line_items, list):
+                products = []
+                for item in line_items:
+                    if isinstance(item, dict):
+                        products.append({
+                            'id': str(item.get('sku') or item.get('title', '')),
+                            'name': item.get('title') or item.get('name', ''),
+                            'quantity': item.get('quantity', 1),
+                            'item_price': float(item.get('price', 0) or 0),
+                        })
+
         if not products or not isinstance(products, list):
             product_name = data.get('product_name') or data.get('product', '')
             if product_name:
                 products = [{'id': product_name, 'name': product_name, 'quantity': 1, 'item_price': float(amount or 0)}]
 
         content_name = data.get('product_name') or data.get('product', '')
+        # Fallback: nome do produto de line_items
+        if not content_name and products and isinstance(products, list) and products[0]:
+            content_name = products[0].get('name', '')
         currency = data.get('currency', 'BRL')
 
         test_code = data.get('test_event_code')

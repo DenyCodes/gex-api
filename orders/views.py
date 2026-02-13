@@ -286,6 +286,63 @@ def webhook_cartpanda(request):
     data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
     data['platform'] = 'cartpanda'
 
+    # --- Flatten dos dados aninhados do CartPanda ---
+    customer = data.get('customer', {}) or {}
+    billing = data.get('billing_address', {}) or {}
+    shipping = data.get('shipping_address', {}) or {}
+    line_items = data.get('line_items', []) or []
+
+    # Email, phone, nome — prioridade: root > customer > billing > shipping
+    if not data.get('email'):
+        data['email'] = customer.get('email') or billing.get('email')
+    if not data.get('phone'):
+        data['phone'] = customer.get('phone') or billing.get('phone') or shipping.get('phone')
+    if not data.get('first_name'):
+        data['first_name'] = customer.get('first_name') or billing.get('first_name') or shipping.get('first_name')
+    if not data.get('last_name'):
+        data['last_name'] = customer.get('last_name') or billing.get('last_name') or shipping.get('last_name')
+
+    # Endereço — billing > shipping
+    if not data.get('zip_code'):
+        data['zip_code'] = billing.get('zip') or shipping.get('zip')
+    if not data.get('city'):
+        data['city'] = billing.get('city') or shipping.get('city')
+    if not data.get('state'):
+        data['state'] = billing.get('province_code') or billing.get('province') or shipping.get('province_code')
+
+    # Valor
+    if not data.get('value'):
+        data['value'] = data.get('total_price') or data.get('subtotal_price')
+
+    # Produtos — converte line_items → products
+    if line_items and not data.get('products'):
+        products = []
+        for item in line_items:
+            if isinstance(item, dict):
+                products.append({
+                    'id': str(item.get('sku') or item.get('title', '')),
+                    'name': item.get('title') or item.get('name', ''),
+                    'quantity': item.get('quantity', 1),
+                    'price': item.get('price', 0),
+                    'item_price': item.get('price', 0),
+                })
+        data['products'] = products
+        if products and not data.get('product_name'):
+            data['product_name'] = products[0].get('name', '')
+
+    # Order ID
+    if not data.get('order_id'):
+        data['order_id'] = str(data.get('id') or data.get('order_number') or '')
+
+    # CartPanda ID para criação de Order
+    if not data.get('cartpanda_id'):
+        data['cartpanda_id'] = str(data.get('id') or '')
+
+    # Payment method
+    if not data.get('payment_method'):
+        data['payment_method'] = data.get('gateway') or data.get('payment_gateway') or ''
+
+    # --- Detecção de evento ---
     financial_status = str(data.get('financial_status', '')).lower()
     topic = str(data.get('topic', '')).lower()
 
@@ -293,6 +350,8 @@ def webhook_cartpanda(request):
         return _handle_webhook(data, event_type_override='purchase_approved', lead_source_override='customer')
     elif financial_status == 'refunded' or 'refund' in topic:
         return _handle_webhook(data, event_type_override='refund', lead_source_override='customer')
+    elif 'abandon' in topic or 'abandon' in financial_status:
+        return _handle_webhook(data, event_type_override='cart_abandonment', lead_source_override='abandonment')
     elif financial_status == 'pending' or 'created' in topic:
         return _handle_webhook(data, lead_source_override='lead')
     else:

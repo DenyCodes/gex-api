@@ -55,9 +55,26 @@ REST_FRAMEWORK = {
 
 SPECTACULAR_SETTINGS = {
     'TITLE': 'GEX Corporation API',
-    'DESCRIPTION': 'API de Integração Reportana (Read-Only)',
-    'VERSION': '1.0.0',
+    'DESCRIPTION': (
+        'API REST da GEX Corporation para gerenciamento de leads, pedidos e eventos.\n\n'
+        '## Funcionalidades\n'
+        '- **Webhooks** para receber dados de múltiplas plataformas (CartPanda, Hotmart, Kiwify, etc.)\n'
+        '- **Normalização automática** de dados (email, telefone, nome, valores)\n'
+        '- **Detecção automática de plataforma** a partir do payload\n'
+        '- **Integração Meta CAPI** — envia eventos (Purchase, InitiateCheckout, Lead) para o Facebook\n'
+        '- **CRUD completo** de Leads, Orders e CAPI Events\n\n'
+        '## Fluxo de Webhook\n'
+        '`POST payload → Normalização → Upsert Lead → Criar Order (se Purchase) → Enviar Meta CAPI`'
+    ),
+    'VERSION': '2.0.0',
     'SCHEMA_PATH_PREFIX': '/api/v1/',
+    'TAGS': [
+        {'name': 'Webhooks', 'description': 'Endpoints para receber dados de plataformas externas (n8n, CartPanda, etc.)'},
+        {'name': 'Orders', 'description': 'CRUD de pedidos/compras'},
+        {'name': 'Leads', 'description': 'CRUD de leads/clientes'},
+        {'name': 'Events', 'description': 'Log de eventos enviados para Meta CAPI'},
+        {'name': 'Health', 'description': 'Monitoramento da API'},
+    ],
 }
 
 CORS_ALLOW_ALL_ORIGINS = True
